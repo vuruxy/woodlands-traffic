@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Woodlands Checkpoint Traffic</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #0a0a0a;
+    color: #e0e0e0;
+    min-height: 100vh;
+  }
+  header {
+    background: #111;
+    border-bottom: 1px solid #222;
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  h1 {
+    font-size: 20px;
+    font-weight: 600;
+    color: #fff;
+  }
+  h1 span { color: #4ade80; }
+  .status-bar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    font-size: 13px;
+    color: #888;
+  }
+  .status-bar .live {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #4ade80;
+    font-weight: 500;
+  }
+  .live-dot {
+    width: 8px; height: 8px;
+    background: #4ade80;
+    border-radius: 50%;
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+  .refresh-btn {
+    background: #222;
+    border: 1px solid #333;
+    color: #ccc;
+    padding: 6px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.2s;
+  }
+  .refresh-btn:hover { background: #333; color: #fff; }
+  .auto-label { font-size: 12px; color: #555; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(480px, 1fr));
+    gap: 16px;
+    padding: 20px;
+  }
+  .cam-card {
+    background: #111;
+    border: 1px solid #222;
+    border-radius: 10px;
+    overflow: hidden;
+    transition: border-color 0.3s;
+  }
+  .cam-card:hover { border-color: #444; }
+  .cam-card .label {
+    padding: 10px 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+    border-bottom: 1px solid #1a1a1a;
+  }
+  .cam-card .cam-name { font-weight: 600; color: #fff; }
+  .cam-card .cam-id { color: #555; font-family: monospace; font-size: 11px; }
+  .cam-card .cam-time { color: #888; font-size: 12px; }
+  .cam-card img {
+    width: 100%;
+    display: block;
+    cursor: pointer;
+    transition: opacity 0.3s;
+  }
+  .cam-card img.loading { opacity: 0.5; }
+  .cam-card .traffic-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .badge-clear { background: #052e16; color: #4ade80; }
+  .badge-moderate { background: #422006; color: #fb923c; }
+  .badge-heavy { background: #450a0a; color: #f87171; }
+
+  /* Fullscreen overlay */
+  .overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.9);
+    z-index: 100;
+    cursor: zoom-out;
+    justify-content: center;
+    align-items: center;
+  }
+  .overlay.active { display: flex; }
+  .overlay img {
+    max-width: 95vw;
+    max-height: 95vh;
+    border-radius: 8px;
+  }
+
+  .summary {
+    padding: 12px 24px;
+    background: #0d0d0d;
+    border-bottom: 1px solid #1a1a1a;
+    font-size: 13px;
+    color: #888;
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  .summary strong { color: #ccc; }
+
+  @media (max-width: 600px) {
+    .grid { grid-template-columns: 1fr; padding: 12px; gap: 12px; }
+    header { padding: 12px 16px; }
+    h1 { font-size: 17px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🚗 Woodlands <span>Checkpoint</span> Traffic</h1>
+  <div class="status-bar">
+    <div class="live"><div class="live-dot"></div> LIVE</div>
+    <span id="lastUpdate">—</span>
+    <button class="refresh-btn" onclick="fetchCameras()">↻ Refresh</button>
+    <span class="auto-label">Auto: 60s</span>
+  </div>
+</header>
+
+<div class="summary" id="summary"></div>
+
+<div class="grid" id="grid"></div>
+
+<div class="overlay" id="overlay" onclick="closeOverlay()">
+  <img id="overlayImg" src="">
+</div>
+
+<script>
+const CAMERAS = [
+  { id: '2701', name: 'Woodlands Checkpoint (Causeway)', lat: 1.4470, lon: 103.7717 },
+  { id: '2702', name: 'Woodlands Flyover', lat: 1.4456, lon: 103.7683 },
+  { id: '2704', name: 'BKE (Woodlands)', lat: 1.4296, lon: 103.7693 },
+  { id: '9703', name: 'SLE (Woodlands Ave 2)', lat: 1.4229, lon: 103.7730 },
+  { id: '9704', name: 'SLE (Ulu Sembawang)', lat: 1.4221, lon: 103.7954 },
+  { id: '9705', name: 'SLE (Mandai Rd)', lat: 1.4263, lon: 103.7872 },
+];
+
+const API = 'https://api.data.gov.sg/v1/transport/traffic-images';
+let camData = {};
+
+async function fetchCameras() {
+  try {
+    const res = await fetch(API);
+    const data = await res.json();
+    const allCams = data.items[0].cameras;
+    const ts = data.items[0].timestamp;
+
+    CAMERAS.forEach(cam => {
+      const found = allCams.find(c => c.camera_id === cam.id);
+      if (found) {
+        camData[cam.id] = {
+          ...cam,
+          image: found.image,
+          timestamp: found.timestamp,
+        };
+      }
+    });
+
+    document.getElementById('lastUpdate').textContent =
+      'Updated: ' + new Date(ts).toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+    render();
+  } catch (err) {
+    console.error('Fetch failed:', err);
+  }
+}
+
+function render() {
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '';
+
+  CAMERAS.forEach(cam => {
+    const d = camData[cam.id];
+    if (!d) return;
+
+    const time = new Date(d.timestamp).toLocaleTimeString('en-SG', {
+      hour: '2-digit', minute: '2-digit'
+    });
+
+    const card = document.createElement('div');
+    card.className = 'cam-card';
+    card.innerHTML = `
+      <div class="label">
+        <div>
+          <span class="cam-name">${d.name}</span>
+          <span class="cam-id">#${d.id}</span>
+        </div>
+        <span class="cam-time">📷 ${time}</span>
+      </div>
+      <img src="${d.image}" alt="${d.name}" onclick="openOverlay('${d.image}')"
+           onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22640%22 height=%22480%22><rect fill=%22%23111%22 width=%22640%22 height=%22480%22/><text fill=%22%23555%22 x=%2250%%22 y=%2250%%22 text-anchor=%22middle%22 dy=%220.3em%22 font-size=%2216%22>Camera unavailable</text></svg>'">
+    `;
+    grid.appendChild(card);
+  });
+
+  // Summary
+  const count = Object.keys(camData).length;
+  document.getElementById('summary').innerHTML =
+    `<span><strong>${count}</strong> cameras active</span>
+     <span>Woodlands / BKE / SLE approach</span>
+     <span>📍 Singapore–Malaysia Border</span>`;
+}
+
+function openOverlay(src) {
+  document.getElementById('overlayImg').src = src;
+  document.getElementById('overlay').classList.add('active');
+}
+
+function closeOverlay() {
+  document.getElementById('overlay').classList.remove('active');
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeOverlay();
+});
+
+// Initial load + auto-refresh every 60s
+fetchCameras();
+setInterval(fetchCameras, 60000);
+</script>
+</body>
+</html>
